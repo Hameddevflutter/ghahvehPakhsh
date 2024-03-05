@@ -1,50 +1,66 @@
-from django.shortcuts import render
-from rest_framework.decorators import api_view
+from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import generics
-from .models import Product,Category
-from .serializers import CategorySerializer,ProductSerializer
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.authentication import TokenAuthentication
+from .models import Product, Category
+from .serializers import ProductSerializer, CategorySerializer
+from rest_framework.authtoken.models import Token
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from django.contrib.auth import authenticate
 
-@api_view(['GET'])
-def index(request):
-    return Response({"Success": "The setup was successful"})
+@api_view(['POST'])
+@authentication_classes([])
+@permission_classes([])
+def login(request):
+    username = request.data.get('username')
+    password = request.data.get('password')
 
-@api_view(['GET'])
-def GetAllCategories(request):
-    get_categories = Category.objects.all()
-    serializer = CategorySerializer(get_categories, many=True)
-    return Response(serializer.data)
+    if not username or not password:
+        return Response({'error': 'Please provide both username and password'}, status=status.HTTP_400_BAD_REQUEST)
 
-@api_view(['GET'])
-def GetAllProducts(request):
-    get_products = Product.objects.all()
-    serializer = ProductSerializer(get_products, many=True)
-    return Response(serializer.data)
-class ProductListByCategory(generics.ListAPIView):
-    serializer_class = ProductSerializer
+    user = authenticate(username=username, password=password)
 
-    def get_queryset(self):
-        category_id = self.kwargs['category_id']
-        return Product.objects.filter(category_id=category_id)
-@api_view(['PUT'])
-def UpdateProduct(request):
-    post_id = request.data.get('post_id')
-    get_new_title = request.data.get('new_title')
-    get_new_content = request.data.get('new_content')
-    get_image = request.data.get('image')  # Get the image data from request
+    if not user:
+        return Response({'error': 'Username or password is incorrect'}, status=status.HTTP_401_UNAUTHORIZED)
 
-    try:
-        post = Product.objects.get(id=post_id)
+    token, created = Token.objects.get_or_create(user=user)
+    return Response({'token': token.key}, status=status.HTTP_200_OK)
 
-        if get_new_title:
-            post.title = get_new_title
-        if get_new_content:
-            post.content = get_new_content
-        if get_image:
-            post.image = get_image
+class GetAllProducts(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
 
-        post.save()
-        return Response({"Success": "The post was successfully updated"}, status=200)
+    def get(self, request):
+        products = Product.objects.all()
+        serializer = ProductSerializer(products, many=True)
+        return Response(serializer.data)
 
-    except Product.DoesNotExist:
-        return Response({"Error": "The post does not exist"}, status=404)
+class UpdateProduct(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = ProductSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class ProductListByCategory(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, category_id):
+        products = Product.objects.filter(category__id=category_id)
+        serializer = ProductSerializer(products, many=True)
+        return Response(serializer.data)
+
+class GetAllCategories(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        categories = Category.objects.all()
+        serializer = CategorySerializer(categories, many=True)
+        return Response(serializer.data)
